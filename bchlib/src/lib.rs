@@ -1,4 +1,5 @@
 extern crate bchlib_sys as ffi;
+unsafe impl Send for BCH {}
 
 use std::ptr;
 
@@ -22,11 +23,39 @@ impl BCH {
         }
     }
 
-    pub fn decode(&mut self, msg: &[u8], ecc: &[u8], errloc: &mut[u32]) -> i32 {
+    pub fn decode_bits(&mut self, msg: &[u8], ecc: &[u8], errloc: &mut[u32]) -> i32 {
         let err = unsafe {
             ffi::decodebits_bch(&mut self.0, msg.as_ptr(), ecc.as_ptr(), errloc.as_mut_ptr())
         };
         err
+    }
+
+    pub fn encode_bits(&mut self, msg: &[u8], ecc: &mut [u8]) {
+        unsafe {
+	    ffi::encodebits_bch(&mut self.0, msg.as_ptr(), ecc.as_mut_ptr());
+        };
+    }
+
+    pub fn decode(&mut self, msg: &[u8], ecc: &[u8], errloc: &mut[u32]) -> i32 {
+        let err = unsafe {
+            ffi::decode_bch(&mut self.0, msg.as_ptr(), msg.len() as u32, ecc.as_ptr(), std::ptr::null(), std::ptr::null(), errloc.as_mut_ptr())
+        };
+        err
+    }
+
+    pub fn encode(&mut self, msg: &[u8], ecc: &mut [u8]) {
+        unsafe {
+	    ffi::encode_bch(&mut self.0, msg.as_ptr(), msg.len() as u32, ecc.as_mut_ptr());
+        };
+    }
+
+    pub fn correct(&mut self, msg: &mut [u8], errloc: &[u32], nerr: i32) {
+	if nerr <=0 {
+	    return;
+	}
+        unsafe {
+	    ffi::correct_bch(&mut self.0, msg.as_mut_ptr(), msg.len() as u32, errloc.as_ptr() as *mut u32, nerr);
+        };
     }
 }
 
