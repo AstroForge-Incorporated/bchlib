@@ -1182,7 +1182,7 @@ static void *bch_alloc(size_t size)
         return ptr;
 }
 
-static void bch_unalloc(void*)
+static void bch_unalloc(void* empty)
 {
   // do nothing
 }
