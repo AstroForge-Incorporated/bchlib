@@ -10,4 +10,8 @@ homepage = "https://github.com/yuvadm/bchlib"
 repository = "https://github.com/yuvadm/bchlib"
 
 [dependencies]
-bchlib-sys = { version = "0.2.1", path = "../bchlib-sys" }
+bchlib-sys = { version = "0.2.1", default-features = false, path = "../bchlib-sys" }
+
+[features]
+default = ["std"]
+std = ["bchlib-sys/std"]

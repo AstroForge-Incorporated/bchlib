@@ -1,7 +1,9 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 extern crate bchlib_sys as ffi;
 unsafe impl Send for BCH {}
 
-use std::ptr;
+use core::ptr;
 
 #[derive(Debug)]
 pub struct BCH(ffi::bch_control);
@@ -11,6 +13,12 @@ impl BCH {
         BCH::init_with_poly(m, t, 0)
     }
 
+    pub fn check_free() -> i32 {
+        unsafe {
+            ffi::bch_check_free()
+        }
+    }
+    
     pub fn init_with_poly(m: i32, t: i32, poly: u32) -> Result<BCH, &'static str> {
         unsafe {
             let bch = ffi::init_bch(m, t, poly);
@@ -38,7 +46,7 @@ impl BCH {
 
     pub fn decode(&mut self, msg: &[u8], ecc: &[u8], errloc: &mut[u32]) -> i32 {
         let err = unsafe {
-            ffi::decode_bch(&mut self.0, msg.as_ptr(), msg.len() as u32, ecc.as_ptr(), std::ptr::null(), std::ptr::null(), errloc.as_mut_ptr())
+            ffi::decode_bch(&mut self.0, msg.as_ptr(), msg.len() as u32, ecc.as_ptr(), core::ptr::null(), core::ptr::null(), errloc.as_mut_ptr())
         };
         err
     }

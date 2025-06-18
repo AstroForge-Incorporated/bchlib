@@ -1163,14 +1163,28 @@ static int build_deg2_base(struct bch_control *bch)
         return remaining ? -1 : 0;
 }
 
-static void *bch_alloc(size_t size, int *err)
+static char alloc_heap[4096];
+static int alloc_heap_i = 0;
+
+int bch_check_free() {
+  return sizeof alloc_heap - alloc_heap_i;
+}
+
+static void *bch_alloc(size_t size)
 {
         void *ptr;
 
-        ptr = malloc(size);
-        if (ptr == NULL)
-                *err = 1;
+        if(alloc_heap_i + size >= sizeof alloc_heap)
+          return 0;
+
+        ptr = alloc_heap + alloc_heap_i;
+        alloc_heap_i += size;
         return ptr;
+}
+
+static void bch_unalloc(void*)
+{
+  // do nothing
 }
 
 /*
@@ -1185,12 +1199,12 @@ static uint32_t *compute_generator_polynomial(struct bch_control *bch)
         struct gf_poly *g;
         uint32_t *genpoly;
 
-        g = (struct gf_poly*)bch_alloc(GF_POLY_SZ(m*t), &err);
-        roots = (unsigned int*)bch_alloc((bch->n+1)*sizeof(*roots), &err);
-        genpoly = (uint32_t*)bch_alloc(DIV_ROUND_UP(m*t+1, 32)*sizeof(*genpoly), &err);
+        g = (struct gf_poly*)bch_alloc(GF_POLY_SZ(m*t));
+        roots = (unsigned int*)bch_alloc((bch->n+1)*sizeof(*roots));
+        genpoly = (uint32_t*)bch_alloc(DIV_ROUND_UP(m*t+1, 32)*sizeof(*genpoly));
 
         if (err) {
-                free(genpoly);
+                bch_unalloc(genpoly);
                 genpoly = NULL;
                 goto finish;
         }
@@ -1234,8 +1248,8 @@ static uint32_t *compute_generator_polynomial(struct bch_control *bch)
         bch->ecc_bits = g->deg;
 
 finish:
-        free(g);
-        free(roots);
+        bch_unalloc(g);
+        bch_unalloc(roots);
 
         return genpoly;
 }
@@ -1294,7 +1308,7 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
         if (prim_poly == 0)
                 prim_poly = prim_poly_tab[m-min_m];
 
-        bch = (struct bch_control*)malloc(sizeof(*bch));
+        bch = (struct bch_control*)bch_alloc(sizeof(*bch));
         if (bch == NULL)
                 goto fail;
         memset(bch,0,sizeof(*bch));
@@ -1304,18 +1318,18 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
         bch->n = (1 << m)-1;
         words  = DIV_ROUND_UP(m*t, 32);
         bch->ecc_bytes = DIV_ROUND_UP(m*t, 8);
-        bch->a_pow_tab = (uint16_t*)bch_alloc((1+bch->n)*sizeof(*bch->a_pow_tab), &err);
-        bch->a_log_tab = (uint16_t*)bch_alloc((1+bch->n)*sizeof(*bch->a_log_tab), &err);
-        bch->mod8_tab  = (uint32_t*)bch_alloc(words*1024*sizeof(*bch->mod8_tab), &err);
-        bch->ecc_buf   = (uint32_t*)bch_alloc(words*sizeof(*bch->ecc_buf), &err);
-        bch->ecc_buf2  = (uint32_t*)bch_alloc(words*sizeof(*bch->ecc_buf2), &err);
-        bch->xi_tab    = (unsigned int*)bch_alloc(m*sizeof(*bch->xi_tab), &err);
-        bch->syn       = (unsigned int*)bch_alloc(2*t*sizeof(*bch->syn), &err);
-        bch->cache     = (int*)bch_alloc(2*t*sizeof(*bch->cache), &err);
-        bch->elp       = (struct gf_poly*)bch_alloc((t+1)*sizeof(struct gf_poly_deg1), &err);
+        bch->a_pow_tab = (uint16_t*)bch_alloc((1+bch->n)*sizeof(*bch->a_pow_tab));
+        bch->a_log_tab = (uint16_t*)bch_alloc((1+bch->n)*sizeof(*bch->a_log_tab));
+        bch->mod8_tab  = (uint32_t*)bch_alloc(words*1024*sizeof(*bch->mod8_tab));
+        bch->ecc_buf   = (uint32_t*)bch_alloc(words*sizeof(*bch->ecc_buf));
+        bch->ecc_buf2  = (uint32_t*)bch_alloc(words*sizeof(*bch->ecc_buf2));
+        bch->xi_tab    = (unsigned int*)bch_alloc(m*sizeof(*bch->xi_tab));
+        bch->syn       = (unsigned int*)bch_alloc(2*t*sizeof(*bch->syn));
+        bch->cache     = (int*)bch_alloc(2*t*sizeof(*bch->cache));
+        bch->elp       = (struct gf_poly*)bch_alloc((t+1)*sizeof(struct gf_poly_deg1));
 
         for (i = 0; i < ARRAY_SIZE(bch->poly_2t); i++)
-                bch->poly_2t[i] = (struct gf_poly*)bch_alloc(GF_POLY_SZ(2*t), &err);
+                bch->poly_2t[i] = (struct gf_poly*)bch_alloc(GF_POLY_SZ(2*t));
 
         if (err)
                 goto fail;
@@ -1330,7 +1344,7 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
                 goto fail;
 
         build_mod8_tables(bch, genpoly);
-        free(genpoly);
+        bch_unalloc(genpoly);
 
         err = build_deg2_base(bch);
         if (err)
@@ -1349,32 +1363,34 @@ fail:
  */
 void free_bch(struct bch_control *bch)
 {
+    alloc_heap_i = 0;
+    /*
     unsigned int i;
-
     if (bch) {
-        free(bch->a_pow_tab);
-        free(bch->a_log_tab);
-        free(bch->mod8_tab);
-        free(bch->ecc_buf);
-        free(bch->ecc_buf2);
-        free(bch->xi_tab);
-        free(bch->syn);
-        free(bch->cache);
-        free(bch->elp);
+        bch_unalloc(bch->a_pow_tab);
+        bch_unalloc(bch->a_log_tab);
+        bch_unalloc(bch->mod8_tab);
+        bch_unalloc(bch->ecc_buf);
+        bch_unalloc(bch->ecc_buf2);
+        bch_unalloc(bch->xi_tab);
+        bch_unalloc(bch->syn);
+        bch_unalloc(bch->cache);
+        bch_unalloc(bch->elp);
 
         for (i = 0; i < ARRAY_SIZE(bch->poly_2t); i++)
-            free(bch->poly_2t[i]);
+            bch_unalloc(bch->poly_2t[i]);
 
-        free(bch->databuf);
+        bch_unalloc(bch->databuf);
 
-        free(bch);
+        bch_unalloc(bch);
     }
+    */
 }
 
 static void check_databuf(struct bch_control *bch)
 {
     if (bch->databuf == NULL)
-        bch->databuf = (uint8_t*)malloc( ((bch->n - bch->ecc_bits)+7)/8 + bch->ecc_bytes );
+        bch->databuf = (uint8_t*)bch_alloc( ((bch->n - bch->ecc_bits)+7)/8 + bch->ecc_bytes );
 }
 
 static int pack_databuf(  struct bch_control *bch , const uint8_t *data)
