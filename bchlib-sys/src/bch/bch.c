@@ -62,10 +62,24 @@
  *  2015-05  Mark Borgerding (mark@borgerding.net): replaced linux kernel-specific functions, added bitwise encode/decode functions
  */
 
-#include <stdlib.h>
-#include <string.h>
 #include "bch.h"
-#include <errno.h>
+#include <stddef.h>
+
+static void bch_memset(void *s, int c, size_t n)
+{
+  for (size_t i=0; i<n; i++)
+    ((char*)s)[i] = c;
+}
+
+static void bch_memcpy(void *d, const void *s, size_t n)
+{
+  for (size_t i=0; i<n; i++)
+    ((char*)d)[i] = ((char*)s)[i];
+}
+
+#define EINVAL 11
+#define EBADMSG 13
+
 
 static
 inline
@@ -158,7 +172,7 @@ static void load_ecc8(struct bch_control *bch, uint32_t *dst,
         for (i = 0; i < nwords; i++, src += 4)
                 dst[i] = (src[0] << 24)|(src[1] << 16)|(src[2] << 8)|src[3];
 
-        memcpy(pad, src, BCH_ECC_BYTES(bch)-4*nwords);
+        bch_memcpy(pad, src, BCH_ECC_BYTES(bch)-4*nwords);
         dst[nwords] = (pad[0] << 24)|(pad[1] << 16)|(pad[2] << 8)|pad[3];
 }
 
@@ -181,7 +195,7 @@ static void store_ecc8(struct bch_control *bch, uint8_t *dst,
         pad[1] = (src[nwords] >> 16) & 0xff;
         pad[2] = (src[nwords] >>  8) & 0xff;
         pad[3] = (src[nwords] >>  0) & 0xff;
-        memcpy(dst, pad, BCH_ECC_BYTES(bch)-4*nwords);
+        bch_memcpy(dst, pad, BCH_ECC_BYTES(bch)-4*nwords);
 }
 
 /**
@@ -215,7 +229,7 @@ void encode_bch(struct bch_control *bch, const uint8_t *data,
                 /* load ecc parity bytes into internal 32-bit buffer */
                 load_ecc8(bch, bch->ecc_buf, ecc);
         } else {
-                memset(bch->ecc_buf, 0, sizeof(r));
+                bch_memset(bch->ecc_buf, 0, sizeof(r));
         }
 
         /* process first unaligned data bytes */
@@ -232,7 +246,7 @@ void encode_bch(struct bch_control *bch, const uint8_t *data,
         mlen  = len/4;
         data += 4*mlen;
         len  -= 4*mlen;
-        memcpy(r, bch->ecc_buf, sizeof(r));
+        bch_memcpy(r, bch->ecc_buf, sizeof(r));
 
         /*
          * split each 32-bit word into 4 polynomials of weight 8 as follows:
@@ -258,7 +272,7 @@ void encode_bch(struct bch_control *bch, const uint8_t *data,
 
                 r[l] = p0[l]^p1[l]^p2[l]^p3[l];
         }
-        memcpy(bch->ecc_buf, r, sizeof(r));
+        bch_memcpy(bch->ecc_buf, r, sizeof(r));
 
         /* process last unaligned bytes */
         if (len)
@@ -364,7 +378,7 @@ static void compute_syndromes(struct bch_control *bch, uint32_t *ecc,
         m = ((unsigned int)s) & 31;
         if (m)
                 ecc[s/32] &= ~((1u << (32-m))-1);
-        memset(syn, 0, 2*t*sizeof(*syn));
+        bch_memset(syn, 0, 2*t*sizeof(*syn));
 
         /* compute v(a^j) for j=1 .. 2t-1 */
         do {
@@ -386,7 +400,7 @@ static void compute_syndromes(struct bch_control *bch, uint32_t *ecc,
 
 static void gf_poly_copy(struct gf_poly *dst, struct gf_poly *src)
 {
-        memcpy(dst, src, GF_POLY_SZ(src->deg));
+        bch_memcpy(dst, src, GF_POLY_SZ(src->deg));
 }
 
 static int compute_error_locator_polynomial(struct bch_control *bch,
@@ -400,8 +414,8 @@ static int compute_error_locator_polynomial(struct bch_control *bch,
         struct gf_poly *elp_copy = bch->poly_2t[1];
         int k, pp = -1;
 
-        memset(pelp, 0, GF_POLY_SZ(2*t));
-        memset(elp, 0, GF_POLY_SZ(2*t));
+        bch_memset(pelp, 0, GF_POLY_SZ(2*t));
+        bch_memset(elp, 0, GF_POLY_SZ(2*t));
 
         pelp->deg = 0;
         pelp->c[0] = 1;
@@ -769,7 +783,7 @@ static void gf_poly_div(struct bch_control *bch, struct gf_poly *a,
                 /* compute a mod b (modifies a) */
                 gf_poly_mod(bch, a, b, NULL);
                 /* quotient is stored in upper part of polynomial a */
-                memcpy(q->c, &a->c[b->deg], (1+q->deg)*sizeof(unsigned int));
+                bch_memcpy(q->c, &a->c[b->deg], (1+q->deg)*sizeof(unsigned int));
         } else {
                 q->deg = 0;
                 q->c[0] = 0;
@@ -821,7 +835,7 @@ static void compute_trace_bk_mod(struct bch_control *bch, int k,
         z->c[1] = bch->a_pow_tab[k];
 
         out->deg = 0;
-        memset(out, 0, GF_POLY_SZ(f->deg));
+        bch_memset(out, 0, GF_POLY_SZ(f->deg));
 
         /* compute f log representation only once */
         gf_poly_logrep(bch, f, bch->cache);
@@ -1099,7 +1113,7 @@ static void build_mod8_tables(struct bch_control *bch, const uint32_t *g)
         const int plen = DIV_ROUND_UP(bch->ecc_bits+1, 32);
         const int ecclen = DIV_ROUND_UP(bch->ecc_bits, 32);
 
-        memset(bch->mod8_tab, 0, 4*256*l*sizeof(*bch->mod8_tab));
+        bch_memset(bch->mod8_tab, 0, 4*256*l*sizeof(*bch->mod8_tab));
 
         for (i = 0; i < 256; i++) {
                 /* p(X)=i is a small polynomial of weight <= 8 */
@@ -1143,7 +1157,7 @@ static int build_deg2_base(struct bch_control *bch)
         }
         /* find xi, i=0..m-1 such that xi^2+xi = a^i+Tr(a^i).a^k */
         remaining = m;
-        memset(xi, 0, sizeof(xi));
+        bch_memset(xi, 0, sizeof(xi));
 
         for (x = 0; (x <= GF_N(bch)) && remaining; x++) {
                 y = gf_sqr(bch, x)^x;
@@ -1175,7 +1189,7 @@ static void *bch_alloc(size_t size)
 {
         void *ptr;
         if(alloc_heap_i + size >= sizeof alloc_heap) {
-	  printf("failed to allocated\n");
+	  printf("not enough bch heap!!\n");
           return 0;
 	}
 
@@ -1212,7 +1226,7 @@ static uint32_t *compute_generator_polynomial(struct bch_control *bch)
         }
 
         /* enumerate all roots of g(X) */
-        memset(roots , 0, (bch->n+1)*sizeof(*roots));
+        bch_memset(roots , 0, (bch->n+1)*sizeof(*roots));
         for (i = 0; i < t; i++) {
                 for (j = 0, r = 2*i+1; j < m; j++) {
                         roots[r] = 1;
@@ -1313,7 +1327,7 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
         bch = (struct bch_control*)bch_alloc(sizeof(*bch));
         if (bch == NULL)
                 goto fail;
-        memset(bch,0,sizeof(*bch));
+        bch_memset(bch,0,sizeof(*bch));
 
         bch->m = m;
         bch->t = t;
@@ -1404,7 +1418,7 @@ static int pack_databuf(  struct bch_control *bch , const uint8_t *data)
     uint8_t * bytes;
     check_databuf(bch);
     bytes = bch->databuf;
-    memset(bytes,0,ndatabytes);
+    bch_memset(bytes,0,ndatabytes);
     for (k=0;k<K;++k) {
         int bit = (data[k]&1)!=0; // use only the LSB (can allow sloppy but nice feature of sending in ASCII '0' and '1')
         int i=k+nPad;
@@ -1436,7 +1450,7 @@ static void pack_eccbits(struct bch_control *bch ,const uint8_t * ecc)
     check_databuf(bch);
     ecc_bytes = bch->databuf + ((bch->n - bch->ecc_bits)+7)/8;
     // expand ecc bytes to bits
-    memset(ecc_bytes,0,bch->ecc_bytes);
+    bch_memset(ecc_bytes,0,bch->ecc_bytes);
     for (k=0;k<bch->ecc_bits;++k) {
         int bit = (ecc[k]&1)!=0; // use only the LSB (can allow sloppy but nice feature of sending in ASCII '0' and '1')
         uint8_t mask = (1<<(7-(k&7)));
@@ -1459,7 +1473,7 @@ void encodebits_bch(struct bch_control *bch, const uint8_t *data, uint8_t *ecc)
 {
     int ndatabytes = pack_databuf(bch,data);
     uint8_t * ecc_bytes = bch->databuf + ndatabytes;
-    memset(ecc_bytes,0,bch->ecc_bytes);
+    bch_memset(ecc_bytes,0,bch->ecc_bytes);
     encode_bch(bch,bch->databuf,ndatabytes,ecc_bytes);
     unpack_eccbits(bch,ecc);
 }
