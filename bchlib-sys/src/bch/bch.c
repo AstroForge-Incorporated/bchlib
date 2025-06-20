@@ -1189,7 +1189,7 @@ static void *bch_alloc(size_t size)
 {
         void *ptr;
         if(alloc_heap_i + size >= sizeof alloc_heap) {
-	  printf("not enough bch heap!!\n");
+	  //printf("not enough bch heap!!\n");
           return 0;
 	}
 
