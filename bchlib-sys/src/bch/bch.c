@@ -1163,19 +1163,21 @@ static int build_deg2_base(struct bch_control *bch)
         return remaining ? -1 : 0;
 }
 
-static char alloc_heap[4096];
+static char alloc_heap[24576];
 static int alloc_heap_i = 0;
 
 int bch_check_free() {
   return sizeof alloc_heap - alloc_heap_i;
 }
 
+#include <stdio.h>
 static void *bch_alloc(size_t size)
 {
         void *ptr;
-
-        if(alloc_heap_i + size >= sizeof alloc_heap)
+        if(alloc_heap_i + size >= sizeof alloc_heap) {
+	  printf("failed to allocated\n");
           return 0;
+	}
 
         ptr = alloc_heap + alloc_heap_i;
         alloc_heap_i += size;
