@@ -1187,6 +1187,9 @@ int bch_check_free() {
 #include <stdio.h>
 static void *bch_alloc(size_t size)
 {
+#ifdef __linux__
+        return malloc(size);
+#else
         void *ptr;
         if(alloc_heap_i + size >= sizeof alloc_heap) {
 	  //printf("not enough bch heap!!\n");
@@ -1196,11 +1199,14 @@ static void *bch_alloc(size_t size)
         ptr = alloc_heap + alloc_heap_i;
         alloc_heap_i += size;
         return ptr;
+#endif
 }
 
 static void bch_unalloc(void* empty)
 {
-  // do nothing
+#ifdef __linux__
+        free(empty);
+#endif
 }
 
 /*
@@ -1379,8 +1385,7 @@ fail:
  */
 void free_bch(struct bch_control *bch)
 {
-    alloc_heap_i = 0;
-    /*
+#ifdef __linux__
     unsigned int i;
     if (bch) {
         bch_unalloc(bch->a_pow_tab);
@@ -1400,7 +1405,9 @@ void free_bch(struct bch_control *bch)
 
         bch_unalloc(bch);
     }
-    */
+#else
+        alloc_heap_i = 0;
+#endif
 }
 
 static void check_databuf(struct bch_control *bch)
