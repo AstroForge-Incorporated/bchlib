@@ -1184,6 +1184,9 @@ int bch_check_free() {
   return sizeof alloc_heap - alloc_heap_i;
 }
 
+#ifdef __linux__
+#include <stdlib.h>
+#endif
 #include <stdio.h>
 static void *bch_alloc(size_t size)
 {

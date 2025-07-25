@@ -5,7 +5,11 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    cc::Build::new().file("src/bch/bch.c").compile("bch");
+    cc::Build::new().
+	file("src/bch/bch.c").
+	flag("-Wno-sign-compare").
+	flag("-Wno-unused-parameter").
+	compile("bch");
 
     let mut bindings = bindgen::Builder::default()
         .header("src/bch/bch.h");
