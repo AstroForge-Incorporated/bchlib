@@ -9,6 +9,7 @@ fn main() {
 	file("src/bch/bch.c").
 	flag("-Wno-sign-compare").
 	flag("-Wno-unused-parameter").
+	flag("-Wno-stringop-overflow").
 	compile("bch");
 
     let mut bindings = bindgen::Builder::default()
