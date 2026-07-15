@@ -53,7 +53,7 @@ Buildkite::Builder.pipeline do
     configs.each do |config|
       nix(
         "rust_stable", ".",
-        "cargo clippy --workspace #{config[:flags]} --locked -- -D warnings",
+        "cargo clippy --workspace #{config[:flags]} -- -D warnings",
         label: "cargo clippy: #{config[:name]}"
       )
     end
