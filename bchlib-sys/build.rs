@@ -5,16 +5,16 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    println!("cargo::rerun-if-changed=src/");
+    println!("cargo::rerun-if-changed=build.rs");
+
     let use_std = std::env::var("CARGO_FEATURE_STD").is_ok();
     let use_malloc = std::env::var("CARGO_FEATURE_MALLOC").is_ok();
     let use_decode = std::env::var("CARGO_FEATURE_DECODE").is_ok();
 
     let mut build = cc::Build::new();
     build
-        .file("src/bch/bch.c")
-        .flag("-Wno-sign-compare")
-        .flag("-Wno-unused-parameter")
-        .flag("-Wno-stringop-overflow");
+        .file("src/bch/bch.c");
     if use_malloc {
         // use the system allocator instead of the small fixed-size static pool
         // meant for no_std/embedded targets.

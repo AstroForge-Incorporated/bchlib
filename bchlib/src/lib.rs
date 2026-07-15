@@ -65,7 +65,6 @@ impl BCH {
         }
         unsafe {
             ffi::correct_bch(
-                self.0,
                 msg.as_mut_ptr(),
                 msg.len() as u32,
                 errloc.as_ptr() as *mut u32,

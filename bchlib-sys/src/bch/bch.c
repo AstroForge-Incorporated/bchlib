@@ -1199,6 +1199,7 @@ static int build_deg2_base(struct bch_control *bch)
  * every other unit test's init_bch() calls (Drop is a no-op for this
  * allocator, so nothing else ever gets reclaimed within one process).
  */
+#ifndef BCH_USE_MALLOC
 static union {
         char buf[81920];
         void *_align_ptr;
@@ -1206,20 +1207,21 @@ static union {
 } alloc_heap_storage;
 #define alloc_heap (alloc_heap_storage.buf)
 
-/* every allocation is rounded up to this alignment (covers pointers and
- * uint64_t, the strictest alignment needed by any type in this file) */
-#define BCH_ALLOC_ALIGN 8
-
 static int alloc_heap_i = 0;
 
 int bch_check_free() {
   return sizeof alloc_heap - alloc_heap_i;
 }
 
+#endif
+
+/* every allocation is rounded up to this alignment (covers pointers and
+ * uint64_t, the strictest alignment needed by any type in this file) */
+#define BCH_ALLOC_ALIGN 8
+
 #ifdef BCH_USE_MALLOC
 #include <stdlib.h>
 #endif
-#include <stdio.h>
 static void *bch_alloc(size_t size)
 {
 #ifdef BCH_USE_MALLOC
@@ -1230,7 +1232,6 @@ static void *bch_alloc(size_t size)
                         & ~(size_t)(BCH_ALLOC_ALIGN-1);
 
         if (start + size > sizeof alloc_heap) {
-	  //printf("not enough bch heap!!\n");
           return 0;
 	}
 
@@ -1505,7 +1506,7 @@ static int pack_databuf(  struct bch_control *bch , const uint8_t *data)
  * */
 static void unpack_eccbits( struct bch_control *bch , uint8_t * ecc)
 {
-    int k;
+    unsigned int k;
     uint8_t * ecc_bytes;
     check_databuf(bch);
     ecc_bytes = bch->databuf + ((bch->n - bch->ecc_bits)+7)/8;
@@ -1517,7 +1518,7 @@ static void unpack_eccbits( struct bch_control *bch , uint8_t * ecc)
 #ifdef BCH_DECODE
 static void pack_eccbits(struct bch_control *bch ,const uint8_t * ecc)
 {
-    int k;
+    unsigned int k;
     uint8_t * ecc_bytes;
     check_databuf(bch);
     ecc_bytes = bch->databuf + ((bch->n - bch->ecc_bits)+7)/8;
@@ -1601,11 +1602,11 @@ int decodebits_bch(struct bch_control *bch, const uint8_t *data, const uint8_t *
  * @bch,@data,@len,@errloc: same as a previous call to decode_bch
  * @nerr: returned from decode_bch
  */
-void correct_bch(struct bch_control *bch, uint8_t *data, unsigned int len,unsigned int *errloc, int nerr)
+void correct_bch(uint8_t *data, unsigned int len,unsigned int *errloc, int nerr)
 {
     int i;
     for (i=0;i<nerr;++i) {
-        int bi = errloc[i];
+        unsigned int bi = errloc[i];
         if ( (bi>>3) < len)
             data[bi>>3] ^= (1<<(bi&7));
     }
