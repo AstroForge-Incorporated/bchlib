@@ -1187,9 +1187,20 @@ static int build_deg2_base(struct bch_control *bch)
  * back the static heap with a union so the compiler gives it at least
  * pointer/uint64_t alignment; a bare char[] is only guaranteed 1-byte
  * alignment, which previously let bch_alloc hand out misaligned pointers.
+ *
+ * Sized to fit BCH(10, 48), the target codec for the memory-constrained
+ * embedded deployment: measured usage is 71824 bytes encode-only (BCH_DECODE
+ * off) and 74856 bytes with decode compiled in, so 81920 (80 KiB) leaves
+ * ~7KB of headroom over the larger figure for alignment/padding variance
+ * across platforms. This only needs to fit one instance in isolation, not
+ * a whole test suite's cumulative footprint: see
+ * bchlib/tests/encode_bch_10_48.rs, which lives in its own integration
+ * test process specifically so it doesn't have to share this budget with
+ * every other unit test's init_bch() calls (Drop is a no-op for this
+ * allocator, so nothing else ever gets reclaimed within one process).
  */
 static union {
-        char buf[24576];
+        char buf[81920];
         void *_align_ptr;
         uint64_t _align_u64;
 } alloc_heap_storage;
@@ -1243,7 +1254,7 @@ static uint32_t *compute_generator_polynomial(struct bch_control *bch)
 {
         const unsigned int m = GF_M(bch);
         const unsigned int t = GF_T(bch);
-        int n, err = 0;
+        int n;
         unsigned int i, j, nbits, r, word, *roots;
         struct gf_poly *g;
         uint32_t *genpoly;
@@ -1252,7 +1263,11 @@ static uint32_t *compute_generator_polynomial(struct bch_control *bch)
         roots = (unsigned int*)bch_alloc((bch->n+1)*sizeof(*roots));
         genpoly = (uint32_t*)bch_alloc(DIV_ROUND_UP(m*t+1, 32)*sizeof(*genpoly));
 
-        if (err) {
+        /* bch_alloc() returns NULL on the static heap when it's out of
+         * space; without this check a failed allocation here fell through
+         * to dereferencing/writing through g/roots below - a NULL-pointer
+         * write instead of a clean failure. */
+        if (!g || !roots || !genpoly) {
                 bch_unalloc(genpoly);
                 genpoly = NULL;
                 goto finish;

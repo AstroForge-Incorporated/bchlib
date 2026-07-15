@@ -98,6 +98,40 @@ impl Drop for BCH {
 mod tests {
     use super::*;
 
+    // Encode-only tests: no `#[cfg]` gate, so these run under
+    // `--no-default-features` too (no std, no malloc, no decode compiled
+    // in at all - decode_bch/decode_bits don't even exist in that build).
+    // Since this configuration can't decode anything itself, correctness
+    // is checked by matching the encoded ecc against a pre-determined
+    // array instead: the exact same (msg, ecc) pairs used by test_decode
+    // and test_sync_codeword below, which separately confirm - in a
+    // decode-enabled configuration - that this ecc actually decodes back
+    // to `msg` with zero reported errors. Reusing those vectors here means
+    // "this encode-only build produces the same bytes a decode-capable
+    // build already proved are decodable," without needing decode
+    // available in this build to check it directly.
+    #[test]
+    fn test_encode() {
+        let mut bch = BCH::init(5, 2).unwrap();
+        let msg: [u8; 21] = [
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let mut ecc: [u8; 10] = [0; 10];
+        bch.encode_bits(&msg, &mut ecc);
+        assert_eq!(ecc, [1, 1, 1, 0, 1, 1, 0, 1, 0, 0]);
+    }
+
+    #[test]
+    fn test_encode_sync_codeword() {
+        let mut bch = BCH::init(5, 2).unwrap();
+        let msg: [u8; 21] = [
+            0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0,
+        ];
+        let mut ecc: [u8; 10] = [0; 10];
+        bch.encode_bits(&msg, &mut ecc);
+        assert_eq!(ecc, [1, 0, 1, 1, 1, 0, 1, 1, 0, 0]);
+    }
+
     #[test]
     #[cfg(feature = "decode")]
     fn test_decode() {
