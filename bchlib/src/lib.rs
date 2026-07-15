@@ -4,7 +4,7 @@ extern crate bchlib_sys as ffi;
 unsafe impl Send for BCH {}
 
 #[derive(Debug)]
-pub struct BCH(ffi::bch_control);
+pub struct BCH(*mut ffi::bch_control);
 
 impl BCH {
     pub fn init(m: i32, t: i32) -> Result<BCH, &'static str> {
@@ -21,19 +21,19 @@ impl BCH {
             if bch.is_null() {
                 Err("Invalid BCH params")
             } else {
-                Ok(BCH(*bch))
+                Ok(BCH(bch))
             }
         }
     }
 
     #[cfg(feature = "decode")]
     pub fn decode_bits(&mut self, msg: &[u8], ecc: &[u8], errloc: &mut [u32]) -> i32 {
-        unsafe { ffi::decodebits_bch(&mut self.0, msg.as_ptr(), ecc.as_ptr(), errloc.as_mut_ptr()) }
+        unsafe { ffi::decodebits_bch(self.0, msg.as_ptr(), ecc.as_ptr(), errloc.as_mut_ptr()) }
     }
 
     pub fn encode_bits(&mut self, msg: &[u8], ecc: &mut [u8]) {
         unsafe {
-            ffi::encodebits_bch(&mut self.0, msg.as_ptr(), ecc.as_mut_ptr());
+            ffi::encodebits_bch(self.0, msg.as_ptr(), ecc.as_mut_ptr());
         };
     }
 
@@ -41,7 +41,7 @@ impl BCH {
     pub fn decode(&mut self, msg: &[u8], ecc: &[u8], errloc: &mut [u32]) -> i32 {
         unsafe {
             ffi::decode_bch(
-                &mut self.0,
+                self.0,
                 msg.as_ptr(),
                 msg.len() as u32,
                 ecc.as_ptr(),
@@ -54,12 +54,7 @@ impl BCH {
 
     pub fn encode(&mut self, msg: &[u8], ecc: &mut [u8]) {
         unsafe {
-            ffi::encode_bch(
-                &mut self.0,
-                msg.as_ptr(),
-                msg.len() as u32,
-                ecc.as_mut_ptr(),
-            );
+            ffi::encode_bch(self.0, msg.as_ptr(), msg.len() as u32, ecc.as_mut_ptr());
         };
     }
 
@@ -70,13 +65,32 @@ impl BCH {
         }
         unsafe {
             ffi::correct_bch(
-                &mut self.0,
+                self.0,
                 msg.as_mut_ptr(),
                 msg.len() as u32,
                 errloc.as_ptr() as *mut u32,
                 nerr,
             );
         };
+    }
+}
+
+impl Drop for BCH {
+    fn drop(&mut self) {
+        // The static-heap allocator (used whenever `malloc` is off) doesn't
+        // support freeing individual instances: free_bch's non-malloc path
+        // just resets the whole shared bump allocator, which is only sound
+        // if every live instance is dropped in strict reverse-creation
+        // order - nothing enforces that here, and getting it wrong would
+        // silently corrupt a still-alive instance rather than crash. So
+        // only actually free when a real allocator backs bch_alloc;
+        // otherwise this is a no-op, matching the "one persistent instance
+        // for the process lifetime" design intent of the static heap on
+        // embedded/no_std targets.
+        #[cfg(feature = "malloc")]
+        unsafe {
+            ffi::free_bch(self.0);
+        }
     }
 }
 
@@ -132,15 +146,46 @@ mod tests {
         assert_eq!(bch.is_err(), true);
     }
 
+    // Regression test: free_bch's top-level branch used to key off
+    // `#ifdef __linux__` (the real host platform) instead of `#ifdef
+    // BCH_USE_MALLOC` (the Cargo feature that actually determines whether
+    // bch_alloc uses the static heap). On real Linux that meant a failed
+    // init_bch() call (which calls free_bch internally on its `fail:` path)
+    // took the "call bch_unalloc on each field" branch - a no-op without
+    // `malloc` - instead of resetting alloc_heap_i, so the static heap
+    // silently accumulated across every failed init call and eventually
+    // ran out mid test-suite. This was masked on macOS, where __linux__ is
+    // undefined and the reset happened to fire anyway - which is exactly
+    // why it only broke CI, not local runs. This checks the actual
+    // observable contract directly (a failed init must give back whatever
+    // it consumed), so it fails on any platform if that regresses, not
+    // just Linux.
+    #[test]
+    #[cfg(not(feature = "malloc"))]
+    fn repeated_failed_init_does_not_leak_static_heap() {
+        let free_before = BCH::check_free();
+        for _ in 0..5 {
+            let bch = BCH::init_with_poly(5, 2, 1897); // invalid primitive polynomial
+            assert!(bch.is_err(), "expected invalid poly to fail init");
+        }
+        let free_after = BCH::check_free();
+        assert_eq!(
+            free_before, free_after,
+            "a failed init_bch() call leaked static heap space instead of resetting it"
+        );
+    }
+
     // Regression test: on the static-heap allocator (no `malloc` feature),
-    // init_bch() never resets or frees between independent calls, so a
-    // second BCH::init() starts allocating from wherever the first call's
-    // allocations left off. bch_alloc used to hand out pointers without
-    // rounding up to an alignment boundary, so this second instance's
-    // `struct bch_control` could come back misaligned and crash as soon as
-    // it was read (`Ok(BCH(*bch))` in init_with_poly). This reproduces that
-    // call pattern and checks the second instance actually works, not just
-    // that it avoids crashing.
+    // Drop is a no-op (see impl Drop for BCH), so init_bch() never resets
+    // or frees between independent calls - a second BCH::init() starts
+    // allocating from wherever the first call's allocations left off.
+    // bch_alloc used to hand out pointers without rounding up to an
+    // alignment boundary, so this second instance's `struct bch_control`
+    // could come back misaligned and crash as soon as it was read
+    // (`Ok(BCH(*bch))`, back when init_with_poly copied the struct by value
+    // instead of storing the pointer). This reproduces that call pattern
+    // and checks the second instance actually works, not just that it
+    // avoids crashing.
     #[test]
     #[cfg(feature = "decode")]
     fn test_repeated_init_second_instance_still_works() {
@@ -187,8 +232,9 @@ mod tests {
                 let mut bch = BCH::init(m, t)
                     .unwrap_or_else(|e| panic!("init_bch({}, {}) failed: {}", m, t, e));
 
-                let k = (bch.0.n - bch.0.ecc_bits) as usize;
-                let ecc_bits = bch.0.ecc_bits as usize;
+                let (n, ecc_bits_raw) = unsafe { ((*bch.0).n, (*bch.0).ecc_bits) };
+                let k = (n - ecc_bits_raw) as usize;
+                let ecc_bits = ecc_bits_raw as usize;
 
                 let msg = vec![0u8; k];
                 let mut ecc = vec![0u8; ecc_bits];

@@ -1430,7 +1430,7 @@ fail:
  */
 void free_bch(struct bch_control *bch)
 {
-#ifdef __linux__
+#ifdef BCH_USE_MALLOC
     if (bch) {
         bch_unalloc(bch->a_pow_tab);
         bch_unalloc(bch->a_log_tab);
