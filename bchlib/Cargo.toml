@@ -22,3 +22,6 @@ malloc = ["bchlib-sys/malloc"]
 # Compile in decode_bch/correct_bch support. Disable on memory-constrained
 # encode-only (no_std) targets to shrink the static alloc_heap pool.
 decode = ["bchlib-sys/decode"]
+
+[dev-dependencies]
+rand = "0.10.2"

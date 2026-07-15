@@ -13,8 +13,7 @@ fn main() {
     let use_decode = std::env::var("CARGO_FEATURE_DECODE").is_ok();
 
     let mut build = cc::Build::new();
-    build
-        .file("src/bch/bch.c");
+    build.file("src/bch/bch.c");
     if use_malloc {
         // use the system allocator instead of the small fixed-size static pool
         // meant for no_std/embedded targets.

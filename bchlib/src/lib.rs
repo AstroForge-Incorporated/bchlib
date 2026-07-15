@@ -95,6 +95,12 @@ impl Drop for BCH {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "std")]
+    use rand::random_range;
+
+    #[cfg(feature = "std")]
+    use std::str::from_utf8;
+
     use super::*;
 
     // Encode-only tests: no `#[cfg]` gate, so these run under
@@ -176,7 +182,7 @@ mod tests {
     #[test]
     fn test_init_fail() {
         let bch = BCH::init_with_poly(5, 2, 1897);
-        assert_eq!(bch.is_err(), true);
+        assert!(bch.is_err());
     }
 
     // Regression test: free_bch's top-level branch used to key off
@@ -296,5 +302,88 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// encode 60 bytes of data with 60 bytes of ecc. Corrupt up to `t`` bits and correct
+    /// up to `t` bits.
+    ///
+    /// Double flips are possible.
+    #[test]
+    #[cfg(all(feature = "decode", feature = "malloc", feature = "std"))]
+    fn test_random_flip_correction_bch_10_48() {
+        let m = 10;
+        let t = 48;
+        let mut bch = BCH::init(m, t).unwrap();
+        let mut msg = [0u8; 60];
+        for chunk in msg.chunks_exact_mut(10) {
+            chunk.copy_from_slice(b"ASTROFORGE");
+        }
+        let mut ecc = [0u8; 60];
+        bch.encode(&msg, &mut ecc);
+        let mut codeword = vec![0xAA_u8; msg.len() + ecc.len()];
+
+        codeword[..msg.len()].copy_from_slice(&msg[..]);
+        codeword[msg.len()..].copy_from_slice(&ecc[..]);
+        let size_bytes = codeword.len();
+        let size_bits = size_bytes << 3;
+        for i in (0..t).map(|_| random_range(..size_bits)) {
+            let byte = i % size_bytes;
+            let bit = i % u8::BITS as usize;
+            codeword[byte] ^= 1 << bit;
+        }
+
+        let mut errloc = vec![0x0_u32; t as usize];
+        let nerr = bch.decode(
+            &codeword[..msg.len()],
+            &codeword[msg.len()..ecc.len()],
+            errloc.as_mut_slice(),
+        );
+
+        assert_ne!(msg, codeword[..msg.len()]);
+        bch.correct(&mut codeword[..msg.len()], errloc.as_slice(), nerr);
+
+        println!("message: {:?}", from_utf8(&codeword[..msg.len()]));
+        assert_eq!(msg, codeword[..msg.len()]);
+    }
+
+    /// encode 60 bytes of data with 60 bytes of ecc. Corrupt t bits and correct
+    /// t bits.
+    #[test]
+    #[cfg(all(feature = "decode", feature = "malloc", feature = "std"))]
+    fn test_flip_48_with_correction_bch_10_48() {
+        let m = 10;
+        let t = 48;
+        let mut bch = BCH::init(m, t).unwrap();
+        let mut msg = [0u8; 60];
+        for chunk in msg.chunks_exact_mut(10) {
+            chunk.copy_from_slice(b"ASTROFORGE");
+        }
+        let mut ecc = [0u8; 60];
+        bch.encode(&msg, &mut ecc);
+        let mut codeword = vec![0xAA_u8; msg.len() + ecc.len()];
+
+        codeword[..msg.len()].copy_from_slice(&msg[..]);
+        codeword[msg.len()..].copy_from_slice(&ecc[..]);
+        let size_bytes = msg.len();
+        // flip the first 48 consecutive bits
+        for i in 0..t as usize {
+            let byte = i % size_bytes;
+            let bit = i % u8::BITS as usize;
+            codeword[byte] ^= 1 << bit;
+        }
+
+        let mut errloc = vec![0x0_u32; t as usize];
+        let nerr = bch.decode(
+            &codeword[..msg.len()],
+            &codeword[msg.len()..ecc.len()],
+            errloc.as_mut_slice(),
+        );
+        // t errors should be detected
+        assert_eq!(nerr, t);
+        assert_ne!(msg, codeword[..msg.len()]);
+        bch.correct(&mut codeword[..msg.len()], errloc.as_slice(), nerr);
+
+        println!("message: {:?}", from_utf8(&codeword[..msg.len()]));
+        assert_eq!(msg, codeword[..msg.len()]);
     }
 }
