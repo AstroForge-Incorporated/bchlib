@@ -79,6 +79,7 @@ void encode_bch(struct bch_control *bch, const uint8_t *data,
 
 void encodebits_bch(struct bch_control *bch, const uint8_t *data, uint8_t *ecc);
 
+#ifdef BCH_DECODE
 int decode_bch(struct bch_control *bch, const uint8_t *data, unsigned int len,
 	       const uint8_t *recv_ecc, const uint8_t *calc_ecc,
 	       const unsigned int *syn, unsigned int *errloc);
@@ -90,6 +91,8 @@ int decodebits_bch(struct bch_control *bch, const uint8_t *data,
 void correct_bch(struct bch_control *bch, uint8_t *data,unsigned int len, unsigned int *errloc, int nerr);
 
 void correctbits_bch(struct bch_control *bch, uint8_t *databits, unsigned int *errloc, int nerr);
+#endif /* BCH_DECODE */
+
 int bch_check_free();
 
 #ifdef __cplusplus

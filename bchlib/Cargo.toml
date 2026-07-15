@@ -13,5 +13,12 @@ repository = "https://github.com/yuvadm/bchlib"
 bchlib-sys = { version = "0.2.1", default-features = false, path = "../bchlib-sys" }
 
 [features]
-default = ["std"]
+default = ["std", "malloc", "decode"]
 std = ["bchlib-sys/std"]
+# Use the system allocator (malloc/free) instead of the small fixed-size
+# static pool intended for no_std/embedded targets. Hosted builds should
+# enable this; only disable it for memory-constrained embedded targets.
+malloc = ["bchlib-sys/malloc"]
+# Compile in decode_bch/correct_bch support. Disable on memory-constrained
+# encode-only (no_std) targets to shrink the static alloc_heap pool.
+decode = ["bchlib-sys/decode"]

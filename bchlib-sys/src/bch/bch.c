@@ -283,16 +283,6 @@ void encode_bch(struct bch_control *bch, const uint8_t *data,
                 store_ecc8(bch, ecc, bch->ecc_buf);
 }
 
-static inline int modulo(struct bch_control *bch, unsigned int v)
-{
-        const unsigned int n = GF_N(bch);
-        while (v >= n) {
-                v -= n;
-                v = (v & n) + (v >> GF_M(bch));
-        }
-        return v;
-}
-
 /*
  * shorter and faster modulo function, only works when v < 2N.
  */
@@ -308,6 +298,26 @@ static inline int deg(unsigned int poly)
         return FLS(poly)-1;
 }
 
+/* Galois field basic operations: multiply, divide, inverse, etc. */
+
+static inline unsigned int gf_mul(struct bch_control *bch, unsigned int a,
+                                  unsigned int b)
+{
+        return (a && b) ? bch->a_pow_tab[mod_s(bch, bch->a_log_tab[a]+
+                                               bch->a_log_tab[b])] : 0;
+}
+
+#ifdef BCH_DECODE
+static inline int modulo(struct bch_control *bch, unsigned int v)
+{
+        const unsigned int n = GF_N(bch);
+        while (v >= n) {
+                v -= n;
+                v = (v & n) + (v >> GF_M(bch));
+        }
+        return v;
+}
+
 static inline int parity(unsigned int x)
 {
         /*
@@ -318,15 +328,6 @@ static inline int parity(unsigned int x)
         x ^= x >> 2;
         x = (x & 0x11111111U) * 0x11111111U;
         return (x >> 28) & 1;
-}
-
-/* Galois field basic operations: multiply, divide, inverse, etc. */
-
-static inline unsigned int gf_mul(struct bch_control *bch, unsigned int a,
-                                  unsigned int b)
-{
-        return (a && b) ? bch->a_pow_tab[mod_s(bch, bch->a_log_tab[a]+
-                                               bch->a_log_tab[b])] : 0;
 }
 
 static inline unsigned int gf_sqr(struct bch_control *bch, unsigned int a)
@@ -935,6 +936,7 @@ static int find_poly_roots(struct bch_control *bch, unsigned int k,
         }
         return cnt;
 }
+#endif /* BCH_DECODE */
 
 #if defined(USE_CHIEN_SEARCH)
 /*
@@ -1013,6 +1015,7 @@ static int chien_search(struct bch_control *bch, unsigned int len,
  * Note that this function does not perform any data correction by itself, it
  * merely indicates error locations.
  */
+#ifdef BCH_DECODE
 int decode_bch(struct bch_control *bch, const uint8_t *data, unsigned int len,
                const uint8_t *recv_ecc, const uint8_t *calc_ecc,
                const unsigned int *syn, unsigned int *errloc)
@@ -1073,6 +1076,7 @@ int decode_bch(struct bch_control *bch, const uint8_t *data, unsigned int len,
     }
     return (err >= 0) ? err : -EBADMSG;
 }
+#endif /* BCH_DECODE */
 
 /*
  * generate Galois field lookup tables
@@ -1136,6 +1140,7 @@ static void build_mod8_tables(struct bch_control *bch, const uint32_t *g)
         }
 }
 
+#ifdef BCH_DECODE
 /*
  * build a base for factoring degree 2 polynomials
  */
@@ -1176,38 +1181,57 @@ static int build_deg2_base(struct bch_control *bch)
         /* should not happen but check anyway */
         return remaining ? -1 : 0;
 }
+#endif /* BCH_DECODE */
 
-static char alloc_heap[24576];
+/*
+ * back the static heap with a union so the compiler gives it at least
+ * pointer/uint64_t alignment; a bare char[] is only guaranteed 1-byte
+ * alignment, which previously let bch_alloc hand out misaligned pointers.
+ */
+static union {
+        char buf[24576];
+        void *_align_ptr;
+        uint64_t _align_u64;
+} alloc_heap_storage;
+#define alloc_heap (alloc_heap_storage.buf)
+
+/* every allocation is rounded up to this alignment (covers pointers and
+ * uint64_t, the strictest alignment needed by any type in this file) */
+#define BCH_ALLOC_ALIGN 8
+
 static int alloc_heap_i = 0;
 
 int bch_check_free() {
   return sizeof alloc_heap - alloc_heap_i;
 }
 
-#ifdef __linux__
+#ifdef BCH_USE_MALLOC
 #include <stdlib.h>
 #endif
 #include <stdio.h>
 static void *bch_alloc(size_t size)
 {
-#ifdef __linux__
+#ifdef BCH_USE_MALLOC
         return malloc(size);
 #else
         void *ptr;
-        if(alloc_heap_i + size >= sizeof alloc_heap) {
+        size_t start = ((size_t)alloc_heap_i + (BCH_ALLOC_ALIGN-1))
+                        & ~(size_t)(BCH_ALLOC_ALIGN-1);
+
+        if (start + size > sizeof alloc_heap) {
 	  //printf("not enough bch heap!!\n");
           return 0;
 	}
 
-        ptr = alloc_heap + alloc_heap_i;
-        alloc_heap_i += size;
+        ptr = alloc_heap + start;
+        alloc_heap_i = (int)(start + size);
         return ptr;
 #endif
 }
 
 static void bch_unalloc(void* empty)
 {
-#ifdef __linux__
+#ifdef BCH_USE_MALLOC
         free(empty);
 #endif
 }
@@ -1303,7 +1327,7 @@ finish:
 struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
 {
         int err = 0;
-        unsigned int i, words;
+        unsigned int words;
         uint32_t *genpoly;
         struct bch_control *bch = NULL;
 
@@ -1347,14 +1371,30 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
         bch->a_log_tab = (uint16_t*)bch_alloc((1+bch->n)*sizeof(*bch->a_log_tab));
         bch->mod8_tab  = (uint32_t*)bch_alloc(words*1024*sizeof(*bch->mod8_tab));
         bch->ecc_buf   = (uint32_t*)bch_alloc(words*sizeof(*bch->ecc_buf));
+
+        if (!bch->a_pow_tab || !bch->a_log_tab || !bch->mod8_tab || !bch->ecc_buf)
+                goto fail;
+
+#ifdef BCH_DECODE
+        {
+        unsigned int i;
         bch->ecc_buf2  = (uint32_t*)bch_alloc(words*sizeof(*bch->ecc_buf2));
         bch->xi_tab    = (unsigned int*)bch_alloc(m*sizeof(*bch->xi_tab));
         bch->syn       = (unsigned int*)bch_alloc(2*t*sizeof(*bch->syn));
         bch->cache     = (int*)bch_alloc(2*t*sizeof(*bch->cache));
         bch->elp       = (struct gf_poly*)bch_alloc((t+1)*sizeof(struct gf_poly_deg1));
 
+        if (!bch->ecc_buf2 || !bch->xi_tab || !bch->syn || !bch->cache || !bch->elp)
+                goto fail;
+
         for (i = 0; i < ARRAY_SIZE(bch->poly_2t); i++)
                 bch->poly_2t[i] = (struct gf_poly*)bch_alloc(GF_POLY_SZ(2*t));
+
+        for (i = 0; i < ARRAY_SIZE(bch->poly_2t); i++)
+                if (!bch->poly_2t[i])
+                        goto fail;
+        }
+#endif /* BCH_DECODE */
 
         if (err)
                 goto fail;
@@ -1371,9 +1411,11 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
         build_mod8_tables(bch, genpoly);
         bch_unalloc(genpoly);
 
+#ifdef BCH_DECODE
         err = build_deg2_base(bch);
         if (err)
                 goto fail;
+#endif /* BCH_DECODE */
 
         return bch;
 
@@ -1389,12 +1431,14 @@ fail:
 void free_bch(struct bch_control *bch)
 {
 #ifdef __linux__
-    unsigned int i;
     if (bch) {
         bch_unalloc(bch->a_pow_tab);
         bch_unalloc(bch->a_log_tab);
         bch_unalloc(bch->mod8_tab);
         bch_unalloc(bch->ecc_buf);
+#ifdef BCH_DECODE
+        {
+        unsigned int i;
         bch_unalloc(bch->ecc_buf2);
         bch_unalloc(bch->xi_tab);
         bch_unalloc(bch->syn);
@@ -1403,6 +1447,8 @@ void free_bch(struct bch_control *bch)
 
         for (i = 0; i < ARRAY_SIZE(bch->poly_2t); i++)
             bch_unalloc(bch->poly_2t[i]);
+        }
+#endif /* BCH_DECODE */
 
         bch_unalloc(bch->databuf);
 
@@ -1453,6 +1499,7 @@ static void unpack_eccbits( struct bch_control *bch , uint8_t * ecc)
         ecc[k] = (ecc_bytes[k>>3] & (1<<(7-(k&7))))>0;
 }
 
+#ifdef BCH_DECODE
 static void pack_eccbits(struct bch_control *bch ,const uint8_t * ecc)
 {
     int k;
@@ -1468,6 +1515,7 @@ static void pack_eccbits(struct bch_control *bch ,const uint8_t * ecc)
             ecc_bytes[k>>3] |= mask;
     }
 }
+#endif /* BCH_DECODE */
 
 
 /**
@@ -1488,6 +1536,7 @@ void encodebits_bch(struct bch_control *bch, const uint8_t *data, uint8_t *ecc)
     unpack_eccbits(bch,ecc);
 }
 
+#ifdef BCH_DECODE
 /**
  * decodebits_bch - decode received codeword bits and find error locations
  * @bch:      BCH control structure
@@ -1563,3 +1612,4 @@ void correctbits_bch(struct bch_control *bch, uint8_t *databits, unsigned int *e
             databits[bi] ^= 1;
     }
 }
+#endif /* BCH_DECODE */

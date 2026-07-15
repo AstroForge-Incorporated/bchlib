@@ -1,0 +1,14 @@
+# default retry logic
+# https://buildkite.com/docs/pipelines/configure/defining-steps#step-defaults
+retry:
+  automatic:
+    - exit_status: -1 # Agent lost
+      limit: 2
+    - exit_status: 255 # Forced agent shutdown
+      limit: 2
+
+steps:
+  - command: nix develop .#buildkite --command buildkite-builder run
+    label: ":toolbox: buildkite-builder"
+    agents:
+      queue: default
