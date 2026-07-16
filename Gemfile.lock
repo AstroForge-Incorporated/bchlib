@@ -1,0 +1,27 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    benchmark (0.5.0)
+    buildkite-builder (4.23.0)
+      benchmark
+      logger
+      rainbow (>= 3)
+    logger (1.7.0)
+    rainbow (3.1.1)
+
+PLATFORMS
+  arm64-darwin-25
+  ruby
+
+DEPENDENCIES
+  buildkite-builder (~> 4.23)
+
+CHECKSUMS
+  benchmark (0.5.0) sha256=465df122341aedcb81a2a24b4d3bd19b6c67c1530713fd533f3ff034e419236c
+  buildkite-builder (4.23.0) sha256=037cb53f25036cb1261b5f66442c45a1dddf4a73e11eba4d9040697aabcb6ac3
+  bundler (4.0.11) sha256=5bcec0fb78302e48d02ee46f10ee6e6942be647ba5b44a6d1ddfda9a240ce785
+  logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
+  rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
+
+BUNDLED WITH
+  4.0.11

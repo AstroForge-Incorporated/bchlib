@@ -14,5 +14,15 @@ bindgen = "0.69.5"
 cc = "1.0"
 
 [features]
-default = ["std"]
+default = ["std", "malloc", "decode"]
 std = []
+# Use the system allocator (malloc/free) instead of the small fixed-size
+# static pool intended for no_std/embedded targets. Hosted builds should
+# enable this; only disable it for memory-constrained embedded targets.
+malloc = []
+# Compile in decode_bch/correct_bch and their supporting tables. Disable this
+# on memory-constrained encode-only (no_std) targets to shrink the static
+# alloc_heap pool: it drops ecc_buf2, xi_tab, syn, cache, elp, and the
+# poly_2t scratch polynomials, and decode_bch becomes a stub returning
+# -EINVAL instead of decoding.
+decode = []
