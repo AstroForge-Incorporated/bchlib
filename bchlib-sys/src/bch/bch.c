@@ -1204,7 +1204,7 @@ static union {
         char buf[81920];
         void *_align_ptr;
         uint64_t _align_u64;
-} alloc_heap_storage;
+} alloc_heap_storage __attribute__((section(".bch_static_heap")));
 #define alloc_heap (alloc_heap_storage.buf)
 
 static int alloc_heap_i = 0;
