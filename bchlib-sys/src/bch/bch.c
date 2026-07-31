@@ -1201,7 +1201,7 @@ static int build_deg2_base(struct bch_control *bch)
  */
 #ifndef BCH_USE_MALLOC
 static union {
-        char buf[81920];
+        char buf[92160];
         void *_align_ptr;
         uint64_t _align_u64;
 } alloc_heap_storage __attribute__((section(".bch_static_heap")));
